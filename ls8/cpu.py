@@ -41,12 +41,14 @@ XOR  = 0b10101011
 
 
 OPERANDS_OFFSET = 6
+ALU_OFFSET = 5
 
-# Bit Masks: Might not be needed
+# Bit Masks
 OPERANDS_MASK = 0b11000000
 ALU_MASK      = 0b00100000
 PC_MASK       = 0b00010000
-INSTR_MASK    = 0b00001111
+ID_MASK       = 0b00001111
+
 
 class CPU:
     """Main CPU class."""
@@ -56,6 +58,7 @@ class CPU:
         self.ram = [0] * 256
         self.reg = [0] * 8
         self.pc = 0
+        self.stack_pointer = 0xF7
         self.running = True
 
         self.configure_dispatch_table()
@@ -63,8 +66,19 @@ class CPU:
     def configure_dispatch_table(self):
         self.dispatch_table = {}
 
+        self.dispatch_table[HLT] = self.hlt
         self.dispatch_table[LDI] = self.ldi
         self.dispatch_table[PRN] = self.prn
+        self.dispatch_table[POP] = self.pop
+        self.dispatch_table[PUSH] = self.push
+
+    @property
+    def stack_pointer(self):
+        return self.reg[7]
+
+    @stack_pointer.setter
+    def stack_pointer(self, value):
+        self.reg[7] = value
 
     def ram_read(self, address) -> int:
         return self.ram[address]
@@ -72,35 +86,59 @@ class CPU:
     def ram_write(self, address, value):
         self.ram[address] = value
 
-    def load(self):
+    def load(self, path):
         """Load a program into memory."""
 
         address = 0
 
-        program = [
-            #Hardcoded program
-            # From print8.ls8
-            0b10000010, # LDI R0,8
-            0b00000000,
-            0b00001000,
-            0b01000111, # PRN R0
-            0b00000000,
-            0b00000001, # HLT
-        ]
+        with open(path) as program:
+            for line in program:
+                line = line.split('#',1)[0]
 
-        for instruction in program:
-            self.ram[address] = instruction
-            address += 1
+                try:
+                    instruction = int(line, 2)
+                    self.ram[address] = instruction
+                    address += 1
+                except ValueError:
+                    pass
 
 
-    def alu(self, op, reg_a, reg_b):
+    def alu(self, op, a, b = None):
         """ALU operations."""
 
-        if op == "ADD":
-            self.reg[reg_a] += self.reg[reg_b]
-        #elif op == "SUB": etc
+        if op == ADD:
+            self.reg[a] = self.reg[a] + self.reg[b]
+        elif op == AND:
+            self.reg[a] = self.reg[a] & self.reg[b]
+        elif op == CMP:
+            pass # TODO: requires setting flags
+        elif op == DEC:
+            self.reg[a] -= 1
+        elif op == DIV:
+            if self.reg[b] == 0:
+                raise ValueError("Cannot divide by 0")
+            self.reg[a] = self.reg[a] // self.reg[b] 
+        elif op == INC:
+            self.reg[a] += 1
+        elif op == MOD:
+            self.reg[a] = self.reg[a] % self.reg[b]
+        elif op == MUL:
+            self.reg[a] = self.reg[a] * self.reg[b]
+        elif op == NOT:
+            self.reg[a] = ~self.reg[a]
+        elif op == OR:
+            self.reg[a] = self.reg[a] | self.reg[b]
+        elif op == SHL:
+            self.reg[a] = self.reg[a] << self.reg[b]
+        elif op == SHR:
+            self.reg[a] = self.reg[a] >> self.reg[b]
+        elif op == SUB:
+            self.reg[a] = self.reg[a] - self.reg[b]
+        elif op == XOR:
+            self.reg[a] = self.reg[a] ^ self.reg[b]
+        
         else:
-            raise Exception("ALU Op not supported")
+            raise Exception("Unsupported ALU Operation")
 
     def trace(self):
         """
@@ -121,12 +159,25 @@ class CPU:
             print(" %02X" % self.reg[i], end='')
 
         print()
+    
+    def hlt(self):
+        sys.exit()
 
-    def ldi(self, reg_num, value):
-        self.reg[reg_num] = value
+    def ldi(self, a, value):
+        self.reg[a] = value
 
-    def prn(self, reg_num):
-        print(self.reg[reg_num])
+
+    def pop(self, a):
+        self.reg[a] = self.ram_read(self.stack_pointer)
+        self.stack_pointer += 1
+
+    def prn(self, a):
+        print(self.reg[a])
+
+    def push(self, a):
+        self.stack_pointer -= 1
+        self.ram_write(self.stack_pointer, self.reg[a])
+
 
     def run(self):
         """Run the CPU."""
@@ -135,15 +186,27 @@ class CPU:
 
         instruction_reg = self.ram_read(self.pc)
 
-        while instruction_reg != HLT:
+        while True:
 
             # Figure out byts in instruction
             num_operands = instruction_reg >> OPERANDS_OFFSET
-            print(f"instruction_reg: {bin(instruction_reg)}")
-            print(f"num_operands: {num_operands}")
+        
+            #Determine if command is ALU operation
+            is_alu_operation = (instruction_reg & ALU_MASK) >> ALU_OFFSET
 
-            # Call func from table with appropriate operands
-            if num_operands == 0:
+            if is_alu_operation:
+                if num_operands == 1:
+                    self.alu(instruction_reg, self.ram_read(self.pc + 1))
+                    self.pc += 2
+                elif num_operands == 2:
+                    self.alu(instruction_reg, self.ram_read(self.pc + 1), self.ram_read(self.pc + 2))
+                    self.pc += 3
+                else:
+                    print("Bad instruction")
+
+            # If not, call appropriate function from dispatch table with proper number of operands
+            
+            elif num_operands == 0:
                 self.dispatch_table[instruction_reg]()
                 self.pc += 1
             elif num_operands == 1:
