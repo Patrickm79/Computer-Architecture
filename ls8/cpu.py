@@ -78,6 +78,7 @@ class CPU:
 
     @stack_pointer.setter
     def stack_pointer(self, value):
+        value &= 0xff
         self.reg[7] = value
 
     def ram_read(self, address) -> int:
@@ -139,6 +140,8 @@ class CPU:
         
         else:
             raise Exception("Unsupported ALU Operation")
+
+        self.reg[a] &= 0xff #make sure <8bit limiter
 
     def trace(self):
         """
