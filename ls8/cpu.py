@@ -42,6 +42,7 @@ XOR  = 0b10101011
 
 OPERANDS_OFFSET = 6
 ALU_OFFSET = 5
+PC_OFFSET = 4
 
 # Bit Masks
 OPERANDS_MASK = 0b11000000
@@ -66,12 +67,13 @@ class CPU:
     def configure_dispatch_table(self):
         self.dispatch_table = {}
 
+        self.dispatch_table[CALL] = self.call
         self.dispatch_table[HLT] = self.hlt
         self.dispatch_table[LDI] = self.ldi
         self.dispatch_table[PRN] = self.prn
         self.dispatch_table[POP] = self.pop
         self.dispatch_table[PUSH] = self.push
-
+        self.dispatch_table[RET] = self.ret
     @property
     def stack_pointer(self):
         return self.reg[7]
@@ -166,9 +168,20 @@ class CPU:
     def hlt(self):
         sys.exit()
 
+    def call(self, a):
+        # push address of instruction at pc + 2 to the stack
+        self.stack_pointer -= 1
+        self.ram_write(self.stack_pointer, self.pc + 2)
+        # set pc to address in reg a
+        self.pc = self.reg[a]
+
     def ldi(self, a, value):
         self.reg[a] = value
 
+    def ret(self):
+        # Pop address from stack and set pc to that address
+        self.pc = self.ram_read(self.stack_pointer)
+        self.stack_pointer += 1
 
     def pop(self, a):
         self.reg[a] = self.ram_read(self.stack_pointer)
@@ -207,6 +220,7 @@ class CPU:
                 else:
                     print("Bad instruction")
 
+                
             # If not, call appropriate function from dispatch table with proper number of operands
             
             elif num_operands == 0:
@@ -220,6 +234,13 @@ class CPU:
                 self.pc += 3
             else:
                 print("Bad instruction")
+
+            # Detrmine if the instruction set the PC
+            sets_pc = (instruction_reg & PC_MASK) >> PC_OFFSET
+
+            # Increment the PC accordingly
+            if not sets_pc:
+                self.pc += num_operands + 1
 
             # Read next instruction
             instruction_reg = self.ram_read(self.pc)
